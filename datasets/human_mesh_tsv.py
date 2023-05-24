@@ -23,12 +23,13 @@ import torchvision.transforms as transforms
 
 
 class MeshTSVDataset(object):
-    def __init__(self, img_file, label_file=None, hw_file=None,
+    def __init__(self, img_file, label_file=None, hw_file=None, cameraparams_file=None,
                  linelist_file=None, is_train=True, cv2_output=False, scale_factor=1):
 
         self.img_file = img_file
         self.label_file = label_file
         self.hw_file = hw_file
+        self.cameraparams_file = cameraparams_file
         # self.linelist_file = linelist_file
         self.linelistCam1_file = linelist_file[0]
         self.linelistCam2_file = linelist_file[1]
@@ -214,6 +215,82 @@ class MeshTSVDataset(object):
             images.append(cv2_im)
         return images
 
+    def get_camerasparams(self, img_key):
+        camerasparams = []
+        cam1para = {}
+        cam2para = {}
+        cam3para = {}
+        cam4para = {}
+        img_name = img_key[0]
+        f = h5py.File(self.cameraparams_file, 'r')
+        if img_name.find('S1') != -1:
+            for item in f['subject1']['camera1'].keys():
+                cam1para[item] = f['subject1']['camera1'][item][()]
+            for item in f['subject1']['camera2'].keys():
+                cam2para[item] = f['subject1']['camera2'][item][()]
+            for item in f['subject1']['camera3'].keys():
+                cam3para[item] = f['subject1']['camera3'][item][()]
+            for item in f['subject1']['camera4'].keys():
+                cam4para[item] = f['subject1']['camera4'][item][()]
+        elif img_name.find('S5') != -1:
+            for item in f['subject5']['camera1'].keys():
+                cam1para[item] = f['subject5']['camera1'][item][()]
+            for item in f['subject5']['camera2'].keys():
+                cam2para[item] = f['subject5']['camera2'][item][()]
+            for item in f['subject5']['camera3'].keys():
+                cam3para[item] = f['subject5']['camera3'][item][()]
+            for item in f['subject5']['camera4'].keys():
+                cam4para[item] = f['subject5']['camera4'][item][()]
+        elif img_name.find('S6') != -1:
+            for item in f['subject6']['camera1'].keys():
+                cam1para[item] = f['subject6']['camera1'][item][()]
+            for item in f['subject6']['camera2'].keys():
+                cam2para[item] = f['subject6']['camera2'][item][()]
+            for item in f['subject6']['camera3'].keys():
+                cam3para[item] = f['subject6']['camera3'][item][()]
+            for item in f['subject6']['camera4'].keys():
+                cam4para[item] = f['subject6']['camera4'][item][()]
+        elif img_name.find('S7') != -1:
+            for item in f['subject7']['camera1'].keys():
+                cam1para[item] = f['subject7']['camera1'][item][()]
+            for item in f['subject7']['camera2'].keys():
+                cam2para[item] = f['subject7']['camera2'][item][()]
+            for item in f['subject7']['camera3'].keys():
+                cam3para[item] = f['subject7']['camera3'][item][()]
+            for item in f['subject7']['camera4'].keys():
+                cam4para[item] = f['subject7']['camera4'][item][()]
+        elif img_name.find('S8') != -1:
+            for item in f['subject8']['camera1'].keys():
+                cam1para[item] = f['subject8']['camera1'][item][()]
+            for item in f['subject8']['camera2'].keys():
+                cam2para[item] = f['subject8']['camera2'][item][()]
+            for item in f['subject8']['camera3'].keys():
+                cam3para[item] = f['subject8']['camera3'][item][()]
+            for item in f['subject8']['camera4'].keys():
+                cam4para[item] = f['subject8']['camera4'][item][()]
+        elif img_name.find('S9') != -1:
+            for item in f['subject9']['camera1'].keys():
+                cam1para[item] = f['subject9']['camera1'][item][()]
+            for item in f['subject9']['camera2'].keys():
+                cam2para[item] = f['subject9']['camera2'][item][()]
+            for item in f['subject9']['camera3'].keys():
+                cam3para[item] = f['subject9']['camera3'][item][()]
+            for item in f['subject9']['camera4'].keys():
+                cam4para[item] = f['subject9']['camera4'][item][()]
+        elif img_name.find('S11') != -1:
+            for item in f['subject11']['camera1'].keys():
+                cam1para[item] = f['subject11']['camera1'][item][()]
+            for item in f['subject11']['camera2'].keys():
+                cam2para[item] = f['subject11']['camera2'][item][()]
+            for item in f['subject11']['camera3'].keys():
+                cam3para[item] = f['subject11']['camera3'][item][()]
+            for item in f['subject11']['camera4'].keys():
+                cam4para[item] = f['subject11']['camera4'][item][()]
+        else:
+            print('Subject no. wrong, no such subject!')
+            raise AssertionError()
+        return [cam1para, cam2para, cam3para, cam4para]  # 返回对应四个视角的相机参数
+
     # def get_annotations(self, idx): # 单视角返回标注
     #     line_no = self.get_line_no(idx)
     #     if self.label_tsv is not None:
@@ -281,6 +358,7 @@ class MeshTSVDataset(object):
 
         img = self.get_image(idx)  # 一个列表,包含4张图片
         img_key = self.get_img_key(idx) # 一个列表，包含4张图片的名称
+        camerasparams = self.get_camerasparams(img_key) # 一个列表，包含4各视角的相机参数，每个相机参数为一个字典
         annotations = self.get_annotations(idx) # 一个列表，包含4张图片各自对应的标注
         
         # center_list = []
@@ -354,6 +432,7 @@ class MeshTSVDataset(object):
 
             meta_data = {}
             meta_data['ori_img'] = img
+            meta_data['cameras'] = camerasparams[i]
             meta_data['pose'] = torch.from_numpy(self.pose_processing(pose, rot, flip)).float()
             meta_data['betas'] = torch.from_numpy(betas).float()
             meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float()
@@ -368,7 +447,7 @@ class MeshTSVDataset(object):
             meta_data['gender'] = gender
             meta_data_list.append(meta_data)
         
-        return img_key, transfromed_imgs, meta_data_list # 此处返回3个列表，包含4个视角下的图名、图片、标注
+        return img_key, transfromed_imgs, meta_data_list # 此处返回3个列表，包含4个视角下的图名、图片、标注(包括相机参数)
 
 
 
@@ -382,6 +461,7 @@ class MeshTSVYamlDataset(MeshTSVDataset):
 
         if self.is_composite==False:
             img_file = find_file_path_in_yaml(self.cfg['img'], self.root)
+            cameraparams_file = find_file_path_in_yaml(self.cfg.get('cameraparams',None), self.root)
             label_file = find_file_path_in_yaml(self.cfg.get('label', None),
                                                 self.root)
             hw_file = find_file_path_in_yaml(self.cfg.get('hw', None), self.root)
@@ -407,7 +487,7 @@ class MeshTSVYamlDataset(MeshTSVDataset):
                                                 self.root)
 
         super(MeshTSVYamlDataset, self).__init__(
-            img_file, label_file, hw_file, linelist_file, is_train, cv2_output=cv2_output, scale_factor=scale_factor)
+            img_file, label_file, hw_file, cameraparams_file, linelist_file, is_train, cv2_output=cv2_output, scale_factor=scale_factor)
 
 
 if __name__ == '__main__':
