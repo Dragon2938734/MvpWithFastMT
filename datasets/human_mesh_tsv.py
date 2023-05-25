@@ -20,6 +20,7 @@ from src.utils.tsv_file_ops import load_linelist_file, load_from_yaml_file, find
 from src.utils.image_ops import img_from_base64, crop, flip_img, flip_pose, flip_kp, transform, rot_aa
 import torch
 import torchvision.transforms as transforms
+import h5py
 
 
 class MeshTSVDataset(object):
@@ -187,7 +188,7 @@ class MeshTSVDataset(object):
         line_no_cam3 = self.lineCam3_list[idx]
         line_no_cam4 = self.lineCam4_list[idx]
         # 此处返回一组4个视角下的图片的索引
-        return idx if self.line_list is None else [line_no_cam1,line_no_cam2,line_no_cam3,line_no_cam4]
+        return idx if self.lineCam1_list is None else [line_no_cam1,line_no_cam2,line_no_cam3,line_no_cam4]
         # return idx if self.line_list is None else self.line_list[idx]
 
     # def get_image(self, idx):  # 单视角的返回图片函数（一张图片）
@@ -349,7 +350,7 @@ class MeshTSVDataset(object):
             return self.img_tsv[line_no][0]
 
     def __len__(self):
-        if self.line_list is None:
+        if self.lineCam1_list is None:
             return self.img_tsv.num_rows() 
         else:
             return len(self.lineCam1_list) # 返回的数据长度是成套的包含4个视角的组数
@@ -359,7 +360,7 @@ class MeshTSVDataset(object):
         img = self.get_image(idx)  # 一个列表,包含4张图片
         img_key = self.get_img_key(idx) # 一个列表，包含4张图片的名称
         camerasparams = self.get_camerasparams(img_key) # 一个列表，包含4各视角的相机参数，每个相机参数为一个字典
-        annotations = self.get_annotations(idx) # 一个列表，包含4张图片各自对应的标注
+        annotations_list = self.get_annotations(idx) # 一个列表，包含4张图片各自对应的标注
         
         # center_list = []
         # scale_list = []
@@ -378,7 +379,9 @@ class MeshTSVDataset(object):
         flip,pn,rot,sc = self.augm_params()
 
         for i in range(4):
-            annotations = annotations[i][0]
+            # import ipdb
+            # ipdb.set_trace()
+            annotations = annotations_list[i][0]
             center = annotations['center']
             scale = annotations['scale']
             has_2d_joints = annotations['has_2d_joints']
@@ -435,13 +438,13 @@ class MeshTSVDataset(object):
             meta_data['cameras'] = camerasparams[i]
             meta_data['pose'] = torch.from_numpy(self.pose_processing(pose, rot, flip)).float()
             meta_data['betas'] = torch.from_numpy(betas).float()
-            meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float()
+            meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float() # 注意此处包含了关节的可见信息
             meta_data['has_3d_joints'] = has_3d_joints
             meta_data['has_smpl'] = has_smpl
 
             # Get 2D keypoints and apply augmentation transforms
             meta_data['has_2d_joints'] = has_2d_joints
-            meta_data['joints_2d'] = torch.from_numpy(joints_2d_transformed).float()
+            meta_data['joints_2d'] = torch.from_numpy(joints_2d_transformed).float() # 注意此处包含了关节的可见信息
             meta_data['scale'] = float(sc * scale)
             meta_data['center'] = np.asarray(center).astype(np.float32)
             meta_data['gender'] = gender
