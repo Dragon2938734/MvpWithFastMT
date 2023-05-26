@@ -21,6 +21,7 @@ from src.utils.image_ops import img_from_base64, crop, flip_img, flip_pose, flip
 import torch
 import torchvision.transforms as transforms
 import h5py
+# from fastmt2mvpdataset.h36m import fastMT2mvpdatasets
 
 
 class MeshTSVDataset(object):
@@ -122,6 +123,21 @@ class MeshTSVDataset(object):
                 rot = 0
 	
         return flip, pn, rot, sc
+
+    def rgb_processing_keepsize(self, rgb_img, center, scale, rot, flip, pn):
+        """Process rgb image and do augmentation."""
+        # rgb_img = crop(rgb_img, center, scale, 
+        #               [self.img_res, self.img_res], rot=rot)
+        # flip the image 
+        # if flip:
+        #     rgb_img = flip_img(rgb_img)
+        # in the rgb image we add pixel noise in a channel-wise manner
+        # rgb_img[:,:,0] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,0]*pn[0]))
+        # rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
+        # rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
+        # (3,224,224),float,[0,1]
+        rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))
+        return rgb_img
 
     def rgb_processing(self, rgb_img, center, scale, rot, flip, pn):
         """Process rgb image and do augmentation."""
@@ -348,6 +364,10 @@ class MeshTSVDataset(object):
             return self.label_tsv[line_no][0]
         else:
             return self.img_tsv[line_no][0]
+    
+    def tidy_up_camparams(self, camparams_list):
+
+        pass
 
     def __len__(self):
         if self.lineCam1_list is None:
@@ -361,17 +381,6 @@ class MeshTSVDataset(object):
         img_key = self.get_img_key(idx) # 一个列表，包含4张图片的名称
         camerasparams = self.get_camerasparams(img_key) # 一个列表，包含4各视角的相机参数，每个相机参数为一个字典
         annotations_list = self.get_annotations(idx) # 一个列表，包含4张图片各自对应的标注
-        
-        # center_list = []
-        # scale_list = []
-        # has_2d_joints_list = []
-        # has_3d_joints_list = []
-        # joints_2d_list = []
-        # joints_3d_list = []
-        # has_smpl_list = []
-        # pose_list = []
-        # betas_list = []
-        # gender_list = []
         transfromed_imgs = []
         meta_data_list = []
 
@@ -379,8 +388,6 @@ class MeshTSVDataset(object):
         flip,pn,rot,sc = self.augm_params()
 
         for i in range(4):
-            # import ipdb
-            # ipdb.set_trace()
             annotations = annotations_list[i][0]
             center = annotations['center']
             scale = annotations['scale']
@@ -388,27 +395,15 @@ class MeshTSVDataset(object):
             has_3d_joints = annotations['has_3d_joints']
             joints_2d = np.asarray(annotations['2d_joints'])
             joints_3d = np.asarray(annotations['3d_joints'])
-            # center_list.append(annotations[i]['center'])
-            # scale_list.append(annotations[i]['scale'])
-            # has_2d_joints_list.append(annotations[i]['has_2d_joints'])
-            # has_3d_joints_list.append(annotations[i]['has_3d_joints'])
-            # joints_2d = np.asarray(annotations[i]['2d_joints'])
-            # joints_3d = np.asarray(annotations[i]['3d_joints'])
             if joints_2d.ndim==3:
                 joints_2d = joints_2d[0]
             if joints_3d.ndim==3:
                 joints_3d = joints_3d[0]
-            # joints_2d_list.append(joints_2d)
-            # joints_3d_list.append(joints_3d)
-
 
             # Get SMPL parameters, if available
             has_smpl = np.asarray(annotations['has_smpl'])
-            # has_smpl_list.append(has_smpl)
             pose = np.asarray(annotations['pose'])
-            # pose_list.append(pose)
             betas = np.asarray(annotations['betas'])
-            # betas_list.append(betas)
 
             try:
                 gender = annotations['gender']
@@ -419,7 +414,12 @@ class MeshTSVDataset(object):
         # flip,pn,rot,sc = self.augm_params()
 
             # Process image_i
+            # 此处需要更改，即保持原图的尺寸1000*1002
+            img_keepsize[i] = self.rgb_processing_keepsize(img[i], center, scale, rot, flip, pn)
             img[i] = self.rgb_processing(img[i], center, sc*scale, rot, flip, pn)
+            import ipdb 
+            ipdb.set_trace()
+
             img[i] = torch.from_numpy(img[i]).float()
             # Store image before normalization to use it in visualization
             transfromed_img_i = self.normalize_img(img[i])
@@ -434,8 +434,9 @@ class MeshTSVDataset(object):
             joints_2d_transformed = self.j2d_processing(joints_2d.copy(), center, sc*scale, rot, flip)
 
             meta_data = {}
-            meta_data['ori_img'] = img
-            meta_data['cameras'] = camerasparams[i]
+            meta_data['ori_img_keepsize'] = img_keepsize[i]
+            meta_data['ori_img'] = img[i]
+            meta_data['camera'] = camerasparams[i]
             meta_data['pose'] = torch.from_numpy(self.pose_processing(pose, rot, flip)).float()
             meta_data['betas'] = torch.from_numpy(betas).float()
             meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float() # 注意此处包含了关节的可见信息
@@ -449,6 +450,13 @@ class MeshTSVDataset(object):
             meta_data['center'] = np.asarray(center).astype(np.float32)
             meta_data['gender'] = gender
             meta_data_list.append(meta_data)
+
+        # ---------- 以上部分完成了FastMT对数据层面的读取，下面是由FastMT-->mvp数据处理的部分----------------------------#
+        # 此处设计方法：另设计函数文件(./fastmt2mvpdatasets/h36m)，将meta_data传过去处理，再返回来即可
+
+        # input, target, weight, target_3d, meta, input_heatmap = fastMT2mvpdatasets(img_key, transfromed_imgs, meta_data_list)
+
+
         
         return img_key, transfromed_imgs, meta_data_list # 此处返回3个列表，包含4个视角下的图名、图片、标注(包括相机参数)
 
