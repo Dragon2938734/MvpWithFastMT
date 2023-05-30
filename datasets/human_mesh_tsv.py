@@ -21,7 +21,7 @@ from src.utils.image_ops import img_from_base64, crop, flip_img, flip_pose, flip
 import torch
 import torchvision.transforms as transforms
 import h5py
-# from fastmt2mvpdataset.h36m import fastMT2mvpdatasets
+from fastmt2mvpdataset.h36m import fastMT2mvpdatasets
 
 
 class MeshTSVDataset(object):
@@ -136,7 +136,7 @@ class MeshTSVDataset(object):
         # rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
         # rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
         # (3,224,224),float,[0,1]
-        rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))
+        rgb_img = np.transpose(rgb_img.astype('float32'),(0,1,2))
         return rgb_img
 
     def rgb_processing(self, rgb_img, center, scale, rot, flip, pn):
@@ -415,10 +415,10 @@ class MeshTSVDataset(object):
 
             # Process image_i
             # 此处需要更改，即保持原图的尺寸1000*1002
-            img_keepsize[i] = self.rgb_processing_keepsize(img[i], center, scale, rot, flip, pn)
+            img_keepsize = self.rgb_processing_keepsize(img[i], center, scale, rot, flip, pn)
             img[i] = self.rgb_processing(img[i], center, sc*scale, rot, flip, pn)
-            import ipdb 
-            ipdb.set_trace()
+            # import ipdb 
+            # ipdb.set_trace()
 
             img[i] = torch.from_numpy(img[i]).float()
             # Store image before normalization to use it in visualization
@@ -434,28 +434,32 @@ class MeshTSVDataset(object):
             joints_2d_transformed = self.j2d_processing(joints_2d.copy(), center, sc*scale, rot, flip)
 
             meta_data = {}
-            meta_data['ori_img_keepsize'] = img_keepsize[i]
+            meta_data['image'] = img_keepsize  # 注意此处的image是尺寸为（3，1002，1000）的最初始图像
             meta_data['ori_img'] = img[i]
             meta_data['camera'] = camerasparams[i]
             meta_data['pose'] = torch.from_numpy(self.pose_processing(pose, rot, flip)).float()
             meta_data['betas'] = torch.from_numpy(betas).float()
+            meta_data['ori_joints_3d'] = torch.from_numpy(joints_3d).float()
             meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float() # 注意此处包含了关节的可见信息
             meta_data['has_3d_joints'] = has_3d_joints
             meta_data['has_smpl'] = has_smpl
 
             # Get 2D keypoints and apply augmentation transforms
             meta_data['has_2d_joints'] = has_2d_joints
+            meta_data['ori_joints_2d'] = torch.from_numpy(joints_2d).float()
             meta_data['joints_2d'] = torch.from_numpy(joints_2d_transformed).float() # 注意此处包含了关节的可见信息
             meta_data['scale'] = float(sc * scale)
             meta_data['center'] = np.asarray(center).astype(np.float32)
             meta_data['gender'] = gender
             meta_data_list.append(meta_data)
 
+        # import ipdb
+        # ipdb.set_trace()
+
         # ---------- 以上部分完成了FastMT对数据层面的读取，下面是由FastMT-->mvp数据处理的部分----------------------------#
         # 此处设计方法：另设计函数文件(./fastmt2mvpdatasets/h36m)，将meta_data传过去处理，再返回来即可
 
-        # input, target, weight, target_3d, meta, input_heatmap = fastMT2mvpdatasets(img_key, transfromed_imgs, meta_data_list)
-
+        input, target, weight, target_3d, meta, input_heatmap = fastMT2mvpdatasets(img_key, meta_data_list)
 
         
         return img_key, transfromed_imgs, meta_data_list # 此处返回3个列表，包含4个视角下的图名、图片、标注(包括相机参数)

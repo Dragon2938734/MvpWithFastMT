@@ -24,10 +24,10 @@ import numpy as np
 def unfold_camera_param(camera):
     R = camera['R']
     T = camera['T']
-    fx = camera['fx']
-    fy = camera['fy']
-    f = np.array([[fx], [fy]]).reshape(-1, 1)
-    c = np.array([[camera['cx']], [camera['cy']]]).reshape(-1, 1)
+    # fx = camera['fx']
+    # fy = camera['fy']
+    f = camera['f']
+    c = camera['c']
     k = camera['k']
     p = camera['p']
     return R, T, f, c, k, p
