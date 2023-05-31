@@ -459,10 +459,10 @@ class MeshTSVDataset(object):
         # ---------- 以上部分完成了FastMT对数据层面的读取，下面是由FastMT-->mvp数据处理的部分----------------------------#
         # 此处设计方法：另设计函数文件(./fastmt2mvpdatasets/h36m)，将meta_data传过去处理，再返回来即可
 
-        input, target, weight, target_3d, meta, input_heatmap = fastMT2mvpdatasets(img_key, meta_data_list)
+        input, meta = fastMT2mvpdatasets(img_key, meta_data_list)
 
         
-        return img_key, transfromed_imgs, meta_data_list # 此处返回3个列表，包含4个视角下的图名、图片、标注(包括相机参数)
+        return img_key, transfromed_imgs, meta_data_list, input, meta # 此处返回3个列表，包含4个视角下的图名、图片、标注(包括相机参数)
 
 
 

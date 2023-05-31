@@ -149,22 +149,18 @@ def affine_transform(pt, t):
     return new_pt[:2]
 
 
-def jointsdataset(meta_data,
+def jointsdataset(meta_datas,
                   image_size = np.array([320, 320]),
                   heatmap_size = np.array([80, 80]),
                   root_id = 2,
                   transform = None):
+    meta_data = copy.deepcopy(meta_datas)
     image = meta_data['image']  # 此时图片在从tsv格式转为图片时已经为rgb了，所以不用再次调整
-    # import ipdb
-    # ipdb.set_trace()
     image = image[:1000]   # crop image from 1002 x 1000 to 1000 x 1000 for h36m
-    
     joints = meta_data['joints_2d_mvp']
     joints_3d = meta_data['joints_3d_mvp']
     joints_vis = meta_data['joints_2d_vis']
     joints_3d_vis = meta_data['joints_3d_vis']
-    # import ipdb
-    # ipdb.set_trace()
     nposes = len(joints)
 
     height, width, _ = image.shape
@@ -253,15 +249,13 @@ def jointsdataset(meta_data,
         'aug_trans': aug_trans,
     }
 
-    import ipdb
-    ipdb.set_trace()
-
     return input, meta
 
 
-def fastMT2mvpdatasets(img_key, meta_data_list, num_views=4):
+def fastMT2mvpdatasets(img_key, meta_data_lists, num_views=4):
     input = []
     meta = []
+    meta_data_list = copy.deepcopy(meta_data_lists)
 
     for i in range(num_views):
         # all_poses_3d = []
@@ -284,7 +278,7 @@ def fastMT2mvpdatasets(img_key, meta_data_list, num_views=4):
         # all_poses_3d.append(joints_3d)
         # all_poses_vis_3d.append(joints_3d_vis)
 
-        joints_2d_vis = joints_3d_vis  # 存疑
+        joints_2d_vis = joints_3d_vis.clone()  # 存疑
         # all_poses.append(joints_2d)
         # all_poses_vis.append(joints_2d_vis)
 
@@ -315,8 +309,13 @@ def fastMT2mvpdatasets(img_key, meta_data_list, num_views=4):
         mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         transform = transforms.Compose([transforms.ToTensor(),normalize,])
 
-        input[i], meta[i] = jointsdataset(meta_data_list[i], transform=transform)
+        input_i, meta_i = jointsdataset(meta_data_list[i], transform=transform)
+        input.append(input_i)
+        meta.append(meta_i)
         # 下面继续按照Jointdataset中文件获得target、weight、target_3d、input_heatmap
+        # 注意传递时先deepcopy()，不然可变变量会被更改
+        import ipdb
+        ipdb.set_trace()
 
     return meta_data_list 
 
