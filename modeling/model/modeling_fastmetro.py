@@ -14,6 +14,9 @@ from torch import nn
 from .transformer import build_transformer
 from .position_encoding import build_position_encoding
 from .smpl_param_regressor import build_smpl_parameter_regressor
+from model.lib.models.multi_view_pose_transformer import MultiviewPosetransformer  # 导入多视角交叉融合的模块
+from model.lib.core.config import config as cfg
+
 
 class FastMETRO_Body_Network(nn.Module):
     """FastMETRO for 3D human pose and mesh reconstruction from a single RGB image"""
@@ -45,6 +48,13 @@ class FastMETRO_Body_Network(nn.Module):
             num_dec_layers = 3
         else:
             assert False, "The model name is not valid"
+        
+        # 定义多视角特征融合模块
+        if cfg.BACKBONE_MODEL:
+            backbone = eval(cfg.BACKBONE_MODEL + '.get_pose_net')(cfg, is_train=is_train)
+        else:
+            backbone = None
+        self.mutiview_fusion = MultiviewPosetransformer(backbone, cfg)
     
         # configurations for the first transformer
         self.transformer_config_1 = {"model_dim": args.model_dim_1, "dropout": args.transformer_dropout, "nhead": args.transformer_nhead, 
@@ -95,7 +105,7 @@ class FastMETRO_Body_Network(nn.Module):
         if args.use_smpl_param_regressor:
             self.smpl_parameter_regressor = build_smpl_parameter_regressor()
     
-    def forward(self, images):     # 网络部分
+    def forward(self, images, meta):     # 网络部分
         device = images.device
         batch_size = images.size(0)
 
@@ -105,8 +115,9 @@ class FastMETRO_Body_Network(nn.Module):
         attention_mask = self.attention_mask.to(device) # (num_joints + num_vertices) X (num_joints + num_vertices)
         
         # extract image features through a CNN backbone
-        img_features = self.backbone(images) # batch_size X 2048 X 7 X 7
-        _, _, h, w = img_features.shape
+        # img_features = self.backbone(images) # batch_size X 2048 X 7 X 7
+        img_features = self.mutiview_fusion(views=inputs, meta=meta)  # 此处为mvp融合后的特征
+        _, _, h, w = img_features.shape      
         img_features = self.conv_1x1(img_features).flatten(2).permute(2, 0, 1) # 49 X batch_size X 512 
         
         # positional encodings

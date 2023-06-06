@@ -320,13 +320,19 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         log_eval_metrics_mpjpe.set(epoch=args.resume_mpjpe_best_epoch, mPVPE=args.resume_mpjpe_best_mpvpe, mPJPE=args.resume_mpjpe_best_mpjpe, PAmPJPE=args.resume_mpjpe_best_pampjpe)
         log_eval_metrics_pampjpe.set(epoch=args.resume_pampjpe_best_epoch, mPVPE=args.resume_pampjpe_best_mpvpe, mPJPE=args.resume_pampjpe_best_mpjpe, PAmPJPE=args.resume_pampjpe_best_pampjpe)
 
-    for _, (img_keys, images, annotations) in enumerate(train_dataloader):
+    for _, (img_keys, images, annotations, input, meta) in enumerate(train_dataloader):
         FastMETRO_model.train()
         iteration = iteration + 1
         epoch = iteration // iters_per_epoch
         batch_size = images.size(0)
 
         images = images.cuda(args.device) # batch_size X 3 X 224 X 224 
+        inputs = [i.to(device) for i in inputs]
+        meta = [{k: v.to(device) if isinstance(v, torch.Tensor) else v
+                 for k, v in t.items()} for t in meta]
+        # data_time.update(time_synchronized() - end)
+        # end = time_synchronized()
+        # out, loss_dict = model(views=inputs, meta=meta)
 
         # gt 2d joints
         gt_2d_joints = annotations['joints_2d'].cuda(args.device) # batch_size X 24 X 3 (last for visibility)
@@ -359,7 +365,8 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         gt_3d_vertices_coarse = gt_3d_vertices_coarse - gt_smpl_3d_pelvis[:, None, :] # batch_size X 431 X 3
 
         # forward-pass
-        out = FastMETRO_model(images)
+        # out = FastMETRO_model(images)
+        out = FastMETRO_model(inputs, meta)
         pred_cam, pred_3d_joints_from_token = out['pred_cam'], out['pred_3d_joints']
         pred_3d_vertices_coarse, pred_3d_vertices_intermediate, pred_3d_vertices_fine = out['pred_3d_vertices_coarse'], out['pred_3d_vertices_intermediate'], out['pred_3d_vertices_fine']
 
@@ -917,7 +924,11 @@ def main(args):
         run_eval(args, val_dataloader, _FastMETRO_Network, smpl, renderer)
     else:
         train_dataloader = make_data_loader(args, args.train_yaml, args.distributed, is_train=True, scale_factor=args.img_scale_factor)
-        run_train(args, train_dataloader, val_dataloader, _FastMETRO_Network, smpl, mesh_sampler, renderer, smpl_intermediate_faces, smpl_intermediate_edges)
+        run_train(args, 
+                  train_dataloader, 
+                  val_dataloader, 
+                  _FastMETRO_Network, 
+                  smpl, mesh_sampler, renderer, smpl_intermediate_faces, smpl_intermediate_edges)
 
 
 if __name__ == "__main__":

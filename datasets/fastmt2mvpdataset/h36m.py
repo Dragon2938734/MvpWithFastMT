@@ -314,10 +314,10 @@ def fastMT2mvpdatasets(img_key, meta_data_lists, num_views=4):
         meta.append(meta_i)
         # 下面继续按照Jointdataset中文件获得target、weight、target_3d、input_heatmap
         # 注意传递时先deepcopy()，不然可变变量会被更改
-        import ipdb
-        ipdb.set_trace()
+        # import ipdb
+        # ipdb.set_trace()
 
-    return meta_data_list 
+    return input, meta
 
 
     
