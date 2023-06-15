@@ -38,11 +38,13 @@ from src.utils.miscellaneous import mkdir, set_seed
 from src.utils.metric_logger import AverageMeter, EvalMetricsLogger
 from src.utils.metric_pampjpe import reconstruction_error
 from src.utils.geometric_layers import orthographic_projection, rodrigues
-from src.utils.renderer_opendr import OpenDR_Renderer, visualize_reconstruction_opendr, visualize_reconstruction_multi_view_opendr, visualize_reconstruction_smpl_opendr
-try:
-    from src.utils.renderer_pyrender import PyRender_Renderer, visualize_reconstruction_pyrender, visualize_reconstruction_multi_view_pyrender, visualize_reconstruction_smpl_pyrender
-except:
-    print("Failed to import renderer_pyrender. Please see docs/Installation.md")
+# With CUDA 11.1, we render the 3D mesh output using Pyrender.
+# from src.utils.renderer_opendr import OpenDR_Renderer, visualize_reconstruction_opendr, visualize_reconstruction_multi_view_opendr, visualize_reconstruction_smpl_opendr
+# try:
+from src.utils.renderer_pyrender import PyRender_Renderer, visualize_reconstruction_pyrender, visualize_reconstruction_multi_view_pyrender, visualize_reconstruction_smpl_pyrender
+# except:
+    # print("Failed to import renderer_pyrender. Please see docs/Installation.md")
+
 
 def save_checkpoint(model, args, epoch, iteration, num_trial=10):
     checkpoint_dir = op.join(args.output_dir, 'checkpoint-{}-{}'.format(
@@ -320,49 +322,72 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         log_eval_metrics_mpjpe.set(epoch=args.resume_mpjpe_best_epoch, mPVPE=args.resume_mpjpe_best_mpvpe, mPJPE=args.resume_mpjpe_best_mpjpe, PAmPJPE=args.resume_mpjpe_best_pampjpe)
         log_eval_metrics_pampjpe.set(epoch=args.resume_pampjpe_best_epoch, mPVPE=args.resume_pampjpe_best_mpvpe, mPJPE=args.resume_pampjpe_best_mpjpe, PAmPJPE=args.resume_pampjpe_best_pampjpe)
 
-    for _, (img_keys, images, annotations, input, meta) in enumerate(train_dataloader):
+    for _, (img_keys, images, annotations, inputs, meta) in enumerate(train_dataloader):
         FastMETRO_model.train()
         iteration = iteration + 1
         epoch = iteration // iters_per_epoch
-        batch_size = images.size(0)
+        batch_size = images[0].size(0)
 
-        images = images.cuda(args.device) # batch_size X 3 X 224 X 224 
-        inputs = [i.to(device) for i in inputs]
-        meta = [{k: v.to(device) if isinstance(v, torch.Tensor) else v
+        # images = images.cuda(args.device) # batch_size X 3 X 224 X 224
+        # images = [image.to(args.device) for image in images]
+        inputs = [i.to(args.device) for i in inputs]
+        meta = [{k: v.to(args.device) if isinstance(v, torch.Tensor) else v
                  for k, v in t.items()} for t in meta]
         # data_time.update(time_synchronized() - end)
         # end = time_synchronized()
         # out, loss_dict = model(views=inputs, meta=meta)
 
+        # 以下根据因为传进去的现在是多视角，所以要将原来的改成列表形式
         # gt 2d joints
-        gt_2d_joints = annotations['joints_2d'].cuda(args.device) # batch_size X 24 X 3 (last for visibility)
-        gt_2d_joints = gt_2d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 3
-        has_2d_joints = annotations['has_2d_joints'].cuda(args.device) # batch_size
+        gt_2d_joints = [annotation['joints_2d'].to(args.device) for annotation in annotations]
+        # gt_2d_joints = annotations['joints_2d'].cuda(args.device) # batch_size X 24 X 3 (last for visibility)
+        gt_2d_joints = [gt_2d_j[:,cfg.J24_TO_J14,:] for gt_2d_j in gt_2d_joints]
+        # gt_2d_joints = gt_2d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 3
+        has_2d_joints = [annotation['has_2d_joints'].to(args.device) for annotation in annotations]
+        # has_2d_joints = annotations['has_2d_joints'].cuda(args.device) # batch_size
 
         # gt 3d joints
-        gt_3d_joints = annotations['joints_3d'].cuda(args.device) # batch_size X 24 X 4 (last for confidence)
-        gt_3d_pelvis = gt_3d_joints[:,cfg.J24_NAME.index('Pelvis'),:3] # batch_size X 3
-        gt_3d_joints = gt_3d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 4
-        gt_3d_joints[:,:,:3] = gt_3d_joints[:,:,:3] - gt_3d_pelvis[:, None, :] # batch_size X 14 X 4
-        has_3d_joints = annotations['has_3d_joints'].cuda(args.device) # batch_size
+        gt_3d_joints = [annotation['joints_3d'].to(args.device) for annotation in annotations]
+        # gt_3d_joints = annotations['joints_3d'].cuda(args.device) # batch_size X 24 X 4 (last for confidence)
+        gt_3d_pelvis = [gt_3d_j[:,cfg.J24_NAME.index('Pelvis'),:3] for gt_3d_j in gt_3d_joints]
+        # gt_3d_pelvis = gt_3d_joints[:,cfg.J24_NAME.index('Pelvis'),:3] # batch_size X 3
+        gt_3d_joints = [gt_3d_j[:,cfg.J24_TO_J14,:] for gt_3d_j in gt_3d_joints]
+        # gt_3d_joints = gt_3d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 4
+        for i in range(args.num_views):
+            gt_3d_joints[i][:,:,:3] = gt_3d_joints[i][:,:,:3] - gt_3d_pelvis[i][:, None, :] # batch_size X 14 X 4
+        has_3d_joints = [annotation['has_3d_joints'].to(args.device) for annotation in annotations]
+        # has_3d_joints = annotations['has_3d_joints'].cuda(args.device) # batch_size
 
         # gt params for smpl
-        gt_pose = annotations['pose'].cuda(args.device) # batch_size X 72
-        gt_betas = annotations['betas'].cuda(args.device) # batch_size X 10
-        has_smpl = annotations['has_smpl'].cuda(args.device) # batch_size 
+        gt_pose = [annotation['pose'].to(args.device) for annotation in annotations]
+        # gt_pose = annotations['pose'].cuda(args.device) # batch_size X 72
+        gt_betas = [annotation['betas'].to(args.device) for annotation in annotations]
+        # gt_betas = annotations['betas'].cuda(args.device) # batch_size X 10
+        has_smpl = [annotation['has_smpl'].to(args.device) for annotation in annotations]
+        # has_smpl = annotations['has_smpl'].cuda(args.device) # batch_size 
 
         # generate simplified mesh
-        gt_3d_vertices_fine = smpl(gt_pose, gt_betas) # batch_size X 6890 X 3
-        gt_3d_vertices_intermediate = mesh_sampler.downsample(gt_3d_vertices_fine, n1=0, n2=1) # batch_size X 1723 X 3
-        gt_3d_vertices_coarse = mesh_sampler.downsample(gt_3d_vertices_intermediate, n1=1, n2=2) # batch_size X 431 X 3
+        # 注意后续损失函数输入列表！！！！！！！！！！
+        gt_3d_vertices_fine_list = []
+        gt_3d_vertices_intermediate_list = []
+        gt_3d_vertices_coarse_list = []
+        for i in range(args.num_views):
+            gt_3d_vertices_fine = smpl(gt_pose[i], gt_betas[i]) # batch_size X 6890 X 3
+            gt_3d_vertices_intermediate = mesh_sampler.downsample(gt_3d_vertices_fine, n1=0, n2=1) # batch_size X 1723 X 3
+            gt_3d_vertices_coarse = mesh_sampler.downsample(gt_3d_vertices_intermediate, n1=1, n2=2) # batch_size X 431 X 3
 
-        # normalize ground-truth vertices & joints (based on smpl's pelvis)
-        # smpl.get_h36m_joints: from vertex to joint (using smpl)
-        gt_smpl_3d_joints = smpl.get_h36m_joints(gt_3d_vertices_fine) # batch_size X 17 X 3
-        gt_smpl_3d_pelvis = gt_smpl_3d_joints[:,cfg.H36M_J17_NAME.index('Pelvis'),:] # batch_size X 3
-        gt_3d_vertices_fine = gt_3d_vertices_fine - gt_smpl_3d_pelvis[:, None, :] # batch_size X 6890 X 3
-        gt_3d_vertices_intermediate = gt_3d_vertices_intermediate - gt_smpl_3d_pelvis[:, None, :] # batch_size X 1723 X 3
-        gt_3d_vertices_coarse = gt_3d_vertices_coarse - gt_smpl_3d_pelvis[:, None, :] # batch_size X 431 X 3
+            # normalize ground-truth vertices & joints (based on smpl's pelvis)
+            # smpl.get_h36m_joints: from vertex to joint (using smpl)
+            gt_smpl_3d_joints = smpl.get_h36m_joints(gt_3d_vertices_fine) # batch_size X 17 X 3
+            gt_smpl_3d_pelvis = gt_smpl_3d_joints[:,cfg.H36M_J17_NAME.index('Pelvis'),:] # batch_size X 3
+            gt_3d_vertices_fine = gt_3d_vertices_fine - gt_smpl_3d_pelvis[:, None, :] # batch_size X 6890 X 3
+            gt_3d_vertices_intermediate = gt_3d_vertices_intermediate - gt_smpl_3d_pelvis[:, None, :] # batch_size X 1723 X 3
+            gt_3d_vertices_coarse = gt_3d_vertices_coarse - gt_smpl_3d_pelvis[:, None, :] # batch_size X 431 X 3
+            
+            gt_3d_vertices_fine_list.append(gt_3d_vertices_fine)
+            gt_3d_vertices_intermediate_list.append(gt_3d_vertices_intermediate)
+            gt_3d_vertices_coarse_list.append(gt_3d_vertices_coarse)
+
 
         # forward-pass
         # out = FastMETRO_model(images)
@@ -747,14 +772,16 @@ def parse_args():
     #########################################################
     parser.add_argument("--data_dir", default='datasets', type=str, required=False,
                         help="Directory with all datasets, each in one subfolder")
-    parser.add_argument("--train_yaml", default='Tax-H36m-coco40k-Muco-UP-Mpii/train.yaml', type=str, required=False,
+    parser.add_argument("--train_yaml", default='human3.6m/train.smpl.p1.yaml', type=str, required=False,
                         help="Yaml file with all data for training.")
-    parser.add_argument("--val_yaml", default='human3.6m/valid.protocol2.yaml', type=str, required=False,
+    parser.add_argument("--val_yaml", default='human3.6m/valid.smpl.p1.yaml', type=str, required=False,
                         help="Yaml file with all data for validation.")
     parser.add_argument("--num_workers", default=4, type=int, 
                         help="Workers in dataloader.")
     parser.add_argument("--img_scale_factor", default=1, type=int, 
-                        help="adjust image resolution.") 
+                        help="adjust image resolution.")
+    parser.add_argument("--num_views", default=4, type=int, 
+                        help="number of images per person.") 
     #########################################################
     # Loading/Saving checkpoints
     #########################################################
@@ -872,10 +899,12 @@ def main(args):
     smpl_intermediate_edges = torch.from_numpy(np.load('./src/modeling/data/smpl_1723_edges.npy', encoding='latin1', allow_pickle=True).astype(np.int64)).to(args.device)
  
     # Renderer for visualization
-    if args.use_opendr_renderer:
+    if args.visualize_training and args.use_opendr_renderer:
         renderer = OpenDR_Renderer(faces=smpl.faces.cpu().numpy())
-    else:
+    elif args.visualize_training:
         renderer = PyRender_Renderer(faces=smpl.faces.cpu().numpy())
+    else:
+        renderer = None
     
     logger.info("Training Arguments %s", args)
     
@@ -912,7 +941,7 @@ def main(args):
         if (args.resume_checkpoint != None) and (args.resume_checkpoint != 'None'):
             # for fine-tuning or resume training or inference, load weights from checkpoint
             logger.info("Loading state dict from checkpoint {}".format(args.resume_checkpoint))
-            cpu_device = torch.device('cpu')
+            cpu_device = torch.device('cpu')         # 疑问：为什么权重加载到cpu上
             state_dict = torch.load(args.resume_checkpoint, map_location=cpu_device)
             _FastMETRO_Network.load_state_dict(state_dict, strict=False)
             del state_dict

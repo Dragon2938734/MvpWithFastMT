@@ -122,7 +122,7 @@ config.DATASET.CROP = True
 config.DATASET.COLOR_RGB = False
 config.DATASET.FLIP = True
 config.DATASET.DATA_AUGMENTATION = True
-config.DATASET.CAMERA_NUM = 5
+config.DATASET.CAMERA_NUM = 4
 config.DATASET.DATA_ROOT = None
 
 # training data augmentation
@@ -149,14 +149,14 @@ config.TRAIN.END_EPOCH = 140
 config.TRAIN.RESUME = False
 config.TRAIN.FINETUNE_MODEL = None
 
-config.TRAIN.BATCH_SIZE = 8
+config.TRAIN.BATCH_SIZE = 2
 config.TRAIN.SHUFFLE = True
 config.TRAIN.clip_max_norm = 0.1
 
 
 # testing
 config.TEST = edict()
-config.TEST.BATCH_SIZE = 8
+config.TEST.BATCH_SIZE = 4
 config.TEST.STATE = 'best'
 config.TEST.FLIP_TEST = False
 config.TEST.POST_PROCESS = False
@@ -251,7 +251,7 @@ config.DECODER.query_embed_type = 'person_joint'
 config.DECODER.optimizer = 'adam'
 config.DECODER.lr_decay_epoch = [40, ]
 
-config.DECODER.projattn_posembed_mode = 'no_use'
+config.DECODER.projattn_posembed_mode = 'use_rayconv'
 
 config.DECODER.use_feat_level = [0, 1, 2]
 config.DECODER.query_adaptation = True

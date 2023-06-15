@@ -1,0 +1,4 @@
+# ninja log v5
+0	3503	1686110504136730288	/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/build/temp.linux-x86_64-cpython-38/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/cpu/deform_cpu.o	f045cb22179b2f8a
+1	16488	1686110517112540147	/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/build/temp.linux-x86_64-cpython-38/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/vision.o	f4de1e5b4fce1e6f
+0	23678	1686110524300434797	/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/build/temp.linux-x86_64-cpython-38/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/cuda/deform_cuda.o	d8e604b4ccc7846c

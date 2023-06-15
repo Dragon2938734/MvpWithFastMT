@@ -26,24 +26,31 @@ from __future__ import print_function
 
 import torch
 import torch.nn as nn
+import os
 
-from models import pose_resnet
+# from models import pose_resnet
+import models
 # from core.loss import PerJointMSELoss
+# import sys
+# sys.path.append("/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models")
+# import ipdb
+# ipdb.set_trace()
 
-from models.mvp_decoder import MvPDecoderLayer, MvPDecoder
-from models.ops.modules import ProjAttn
+from src.modeling.model.lib.models.mvp_decoder import MvPDecoderLayer, MvPDecoder
+from src.modeling.model.lib.models.ops.modules import ProjAttn
 from torch.nn.init import xavier_uniform_, constant_, normal_
-from models.position_encoding import PositionEmbeddingSine, \
+from src.modeling.model.lib.models.position_encoding import PositionEmbeddingSine, \
     get_rays_new, get_2d_coords
-from models.util.misc import (
+from src.modeling.model.lib.models.util.misc import (
                        accuracy, get_world_size,
                        is_dist_avail_and_initialized, inverse_sigmoid)
 
 import copy
 import torch.nn.functional as F
 # import h5py
-from models.matcher import HungarianMatcher
-from core.loss import PerJointL1Loss, PerBoneL1Loss, PerProjectionL1Loss
+from src.modeling.model.lib.models.pose_resnet import get_pose_net
+from src.modeling.model.lib.models.matcher import HungarianMatcher
+from src.modeling.model.lib.core.loss import PerJointL1Loss, PerBoneL1Loss, PerProjectionL1Loss
 
 # import os
 # import os.path as osp
@@ -129,7 +136,7 @@ class MultiviewPosetransformer(nn.Module):
         self.reference_points = nn.Linear(cfg.DECODER.d_model, 3)
         self.reference_feats = nn.Linear(
             cfg.DECODER.d_model * len(cfg.DECODER.use_feat_level)
-            * cfg.DATASET.CAMERA_NUM,
+            * cfg.DATASET.CAMERA_NUM * cfg.TRAIN.BATCH_SIZE,
             cfg.DECODER.d_model)  # 256*feat_level*num_views
 
         self.grid_size = torch.tensor(cfg.MULTI_PERSON.SPACE_SIZE)
@@ -293,16 +300,18 @@ class MultiviewPosetransformer(nn.Module):
         return tensor.view(dim0 * dim1, *left)
 
     def forward(self, views=None, meta=None):
-        if views is not None:
-            all_feats = self.backbone(torch.cat(views, dim=0),
-                                      self.use_feat_level)
-            all_feats = all_feats[::-1]
         batch, _, imageh, imagew = views[0].shape
         nview = len(views)
+        if views is not None:
+            all_feats = self.backbone(torch.cat(views, dim=0),  # 可能需要改动的地方：把格式改为 batch_size X numviews X imgsize
+                                      self.use_feat_level)      # 同一个batch中的数据是同时并行计算，相互独立
+            all_feats = all_feats[::-1]
+        # batch, _, imageh, imagew = views[0].shape
+        # nview = len(views)
 
         cam_R = torch.stack([m['camera_R'] for m in meta], dim=1)
         cam_T = torch.stack([m['camera_standard_T'] for m in meta], dim=1)
-        cam_K = torch.stack([m['camera_Intri'] for m in meta], dim=1)
+        cam_K = torch.stack([m['camera_Intri'] for m in meta], dim=1)  # 4x4x3X3
         affine_trans = torch.stack([m['affine_trans'] for m in meta], dim=1)
         cam_K_crop = \
             torch.bmm(
@@ -356,9 +365,11 @@ class MultiviewPosetransformer(nn.Module):
         # query embedding scheme
         if self.query_embed_type == 'person_joint':
             # person embedding + joint embedding
+            # 更改，由于只面向单人，故尝试把instance_embeds取消，只保留joint embedding
             joint_embeds = self.joint_embedding.weight.unsqueeze(0)
-            instance_embeds = self.instance_embedding.weight.unsqueeze(1)
-            query_embeds = (joint_embeds + instance_embeds).flatten(0, 1)
+            # instance_embeds = self.instance_embedding.weight.unsqueeze(1)
+            # query_embeds = (joint_embeds + instance_embeds).flatten(0, 1)
+            query_embeds = joint_embeds.flatten(0, 1)
 
         if self.query_embed_type == 'image_person_joint':
             # image_embedding + person embedding + joint embedding
@@ -388,8 +399,10 @@ class MultiviewPosetransformer(nn.Module):
         else:
             reference_points = self.reference_points(query_embed).sigmoid()
 
-        init_reference = reference_points  # B x 150 x 3
+        init_reference = reference_points  # B x (num_joint*num_person) x 3
 
+        # import ipdb
+        # ipdb.set_trace()
         hs, inter_references = \
             self.decoder(tgt, reference_points, src_flatten_views,   # 此处即为融合部分
                          camera_rays,
@@ -810,8 +823,9 @@ class SetCriterion(nn.Module):
 
 def get_mvp(cfg, is_train=True):
     if cfg.BACKBONE_MODEL:
-        backbone = eval(
-            cfg.BACKBONE_MODEL + '.get_pose_net')(cfg, is_train=is_train)
+        # backbone = eval(
+        #     cfg.BACKBONE_MODEL + '.get_pose_net')(cfg, is_train=is_train)
+        backbone = get_pose_net(cfg, is_train)
     else:
         backbone = None
     model = MultiviewPosetransformer(backbone, cfg)

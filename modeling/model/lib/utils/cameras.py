@@ -108,7 +108,7 @@ def project_point_radial_batch(x_bs, R_bs, T_bs, f_bs, c_bs, k_bs, p_bs):
     # T.unsqueeze(0).expand(2,-1,-1), f.unsqueeze(0).expand(2,-1,-1),
     # c.unsqueeze(0).expand(2,-1,-1), k.unsqueeze(0).expand(2,-1,-1),
     # p.unsqueeze(0).expand(2,-1,-1)
-
+    x_bs = x_bs.to(torch.float32)
     bs, nview, nbins, _ = x_bs.shape
     xcam_bs = torch.matmul(R_bs, x_bs.transpose(2, 3) - T_bs)
 

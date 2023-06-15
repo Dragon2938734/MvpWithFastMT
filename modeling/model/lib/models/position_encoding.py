@@ -269,7 +269,9 @@ def get_rays_new(image_size, H, W, K, R, T, ret_rays_o=False):
                           torch.linspace(0, W-1, W))
     xy1 = torch.stack([i.to(K.device), j.to(K.device),
                        torch.ones_like(i).to(K.device)], dim=-1).unsqueeze(0)
-    pixel_camera = torch.bmm(xy1.flatten(1, 2).repeat(views, 1, 1),
+    # import ipdb
+    # ipdb.set_trace()
+    pixel_camera = torch.bmm(xy1.flatten(1, 2).repeat(batch*views, 1, 1),  # 此处注意源代码作者说明了仅支持batch_size=1故后续有的地方还需要自己改
                              torch.inverse(K).transpose(2, 1))
     pixel_world = torch.bmm(pixel_camera-T.transpose(2, 1), R)
     rays_d = pixel_world - rays_o.transpose(2, 1)

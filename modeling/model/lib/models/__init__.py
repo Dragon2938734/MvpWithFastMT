@@ -21,8 +21,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import models.pose_resnet
-import models.multi_view_pose_transformer
+# import sys
+# sys.path.append("/root/autodl-tmp/FastMETRO/src/modeling/lib")
+from src.modeling.model.lib.models.pose_resnet import *
+import src.modeling.model.lib.models.multi_view_pose_transformer
 
-import models.mvp_decoder
-import models.util
+import src.modeling.model.lib.models.mvp_decoder
+import src.modeling.model.lib.models.util

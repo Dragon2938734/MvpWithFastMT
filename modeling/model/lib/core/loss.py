@@ -25,7 +25,7 @@ import torch
 import torch.nn as nn
 
 import torch.nn.functional as F
-from lib.utils.cameras import project_pose
+from src.modeling.model.lib.utils.cameras import project_pose
 # from utils.transforms import get_affine_transform as get_transform
 # from utils.transforms import affine_transform_pts_cuda as do_transform
 

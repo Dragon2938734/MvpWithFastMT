@@ -21,7 +21,9 @@ from src.utils.image_ops import img_from_base64, crop, flip_img, flip_pose, flip
 import torch
 import torchvision.transforms as transforms
 import h5py
-from fastmt2mvpdataset.h36m import fastMT2mvpdatasets
+from src.datasets.fastmt2mvpdataset.h36m import fastMT2mvpdatasets
+from tqdm import tqdm
+import copy
 
 
 class MeshTSVDataset(object):
@@ -136,6 +138,11 @@ class MeshTSVDataset(object):
         # rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
         # rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
         # (3,224,224),float,[0,1]
+        # import ipdb
+        # ipdb.set_trace()
+        # if rgb_img.shape != (1002, 1000, 3):
+        rgb_img = rgb_img[:1000]  # crop image from 1002 x 1000 to 1000 x 1000 for mvp_h36m_dataprocess
+        # rgb_img = cv2.resize(rgb_img, (1000, 1000), interpolation=cv2.INTER_CUBIC)
         rgb_img = np.transpose(rgb_img.astype('float32'),(0,1,2))
         return rgb_img
 
@@ -426,6 +433,7 @@ class MeshTSVDataset(object):
             transfromed_imgs.append(transfromed_img_i)
             
             # normalize 3d pose by aligning the pelvis as the root (at origin)
+            ori_joints_3d = copy.deepcopy(joints_3d)
             root_pelvis = joints_3d[self.pelvis_index,:-1]
             joints_3d[:,:-1] = joints_3d[:,:-1] - root_pelvis[None,:]
             # 3d pose augmentation (random flip + rotation, consistent to image and SMPL)
@@ -439,7 +447,7 @@ class MeshTSVDataset(object):
             meta_data['camera'] = camerasparams[i]
             meta_data['pose'] = torch.from_numpy(self.pose_processing(pose, rot, flip)).float()
             meta_data['betas'] = torch.from_numpy(betas).float()
-            meta_data['ori_joints_3d'] = torch.from_numpy(joints_3d).float()
+            meta_data['ori_joints_3d'] = torch.from_numpy(ori_joints_3d).float()
             meta_data['joints_3d'] = torch.from_numpy(joints_3d_transformed).float() # 注意此处包含了关节的可见信息
             meta_data['has_3d_joints'] = has_3d_joints
             meta_data['has_smpl'] = has_smpl
@@ -509,10 +517,10 @@ if __name__ == '__main__':
     yaml_file = 'datasets/human3.6m/train.smpl.p1.yaml'
     dataset = MeshTSVYamlDataset(yaml_file, True, False, scale_factor=1)
     data_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=1)
+        dataset, batch_size=4)
     
-    for i, item in enumerate(data_loader):
-        print('i:', i)
-        import ipdb
-        ipdb.set_trace()
+    for i, item in tqdm(enumerate(data_loader)):
+        if item[2][0]['image'].shape != torch.Size([4, 1002, 1000, 3]):
+            print('i:', i)
+
         

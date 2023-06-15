@@ -156,7 +156,10 @@ def jointsdataset(meta_datas,
                   transform = None):
     meta_data = copy.deepcopy(meta_datas)
     image = meta_data['image']  # 此时图片在从tsv格式转为图片时已经为rgb了，所以不用再次调整
-    image = image[:1000]   # crop image from 1002 x 1000 to 1000 x 1000 for h36m
+    # import ipdb
+    # ipdb.set_trace()
+    # image = cv2.resize(image, (1000, 1000), interpolation=cv2.INTER_CUBIC)
+    # image = image[:1000]   # crop image from 1002 x 1000 to 1000 x 1000 for h36m
     joints = meta_data['joints_2d_mvp']
     joints_3d = meta_data['joints_3d_mvp']
     joints_vis = meta_data['joints_2d_vis']

@@ -217,7 +217,9 @@ class PoseResNet(nn.Module):
 
     def init_weights(self, pretrained=''):
         this_dir = os.path.dirname(__file__)
-        pretrained = os.path.join(this_dir, '../..', pretrained)
+        # import ipdb
+        # ipdb.set_trace()
+        pretrained = os.path.join(this_dir, '..', pretrained)
         if os.path.isfile(pretrained):
             pretrained_state_dict = torch.load(pretrained)
             logger.info('=> loading pretrained models {}'.format(pretrained))
@@ -278,5 +280,7 @@ def get_pose_net(cfg, is_train, **kwargs):
     block_class, layers = resnet_spec[num_layers]
     model = PoseResNet(block_class, layers, cfg, **kwargs)
     if is_train:
+        # import ipdb
+        # ipdb.set_trace()
         model.init_weights(cfg.NETWORK.PRETRAINED)
     return model

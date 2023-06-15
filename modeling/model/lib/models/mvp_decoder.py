@@ -29,17 +29,17 @@ import torch.nn.functional as F
 from torch import nn
 # from torch.nn.init import xavier_uniform_, constant_, uniform_, normal_
 
-from lib.models.util.misc import inverse_sigmoid
-from lib.models.ops.modules import ProjAttn
+from src.modeling.model.lib.models.util.misc import inverse_sigmoid
+from src.modeling.model.lib.models.ops.modules import ProjAttn
 
-import lib.utils.cameras as cameras
-from utils.transforms import get_affine_transform as get_transform
+import src.modeling.model.lib.utils.cameras as cameras
+from src.modeling.model.lib.utils.transforms import get_affine_transform as get_transform
 # from utils.transforms import affine_transform_pts_cuda as do_transform
-from utils.transforms import \
+from src.modeling.model.lib.utils.transforms import \
     affine_transform_pts_cuda_batch as do_transform_batch
 
 import time
-
+import torch, gc
 
 def time_synchronized():
     torch.cuda.synchronize() if torch.cuda.is_available() else None
@@ -132,7 +132,7 @@ class MvPDecoderLayer(nn.Module):
 
         batch_size = query_pos.shape[0]
         device = query_pos.device
-        nviews = len(src_views[0])
+        nviews = int(len(src_views[0])/batch_size)
         # h, w = src_spatial_shapes[0]
         nfeat_level = len(src_views)
         nbins = reference_points.shape[1]
@@ -163,8 +163,9 @@ class MvPDecoderLayer(nn.Module):
             for k, v in meta[v]['camera'].items():
                 cam_batch[k].append(v)
         for k in meta[0]['camera'].keys():
-            cam_batch[k] = torch.stack(cam_batch[k], dim=1)
-
+            cam_batch[k] = torch.stack(cam_batch[k], dim=1)  # 此处将同一个人的四个views的相机参数放到一起
+                                                             # 即cam_batch['R']['0']一个人的四个views的R参数(4,3,3)
+                                                             # 而len(cam_batch['R'])则为batchsize，即一批batch中不同的人
         reference_points_expand = reference_points.\
             unsqueeze(1).expand(-1, nviews, -1, -1, -1)
         reference_points_expand_flatten \
@@ -173,6 +174,7 @@ class MvPDecoderLayer(nn.Module):
 
         reference_points_absolute = self.\
             norm2absolute(reference_points_expand_flatten)
+
         reference_points_projected2d_xy = \
             cameras.project_pose_batch(reference_points_absolute, cam_batch)
 
@@ -210,6 +212,10 @@ class MvPDecoderLayer(nn.Module):
             = ref_points_expand.expand(-1, -1, nfeat_level, -1) \
             * src_spatial_shapes.flip(-1).float() \
             / (src_spatial_shapes.flip(-1)-1).float()
+        
+        gc.collect()
+        torch.cuda.empty_cache()
+
         tgt2 = self.proj_attn(                                 # 论文中的投影注意力处
             self.with_pos_embed(tgt_expand, query_pos_expand),
             ref_points_expand, src_views, src_views_with_rayembed,
@@ -225,7 +231,7 @@ class MvPDecoderLayer(nn.Module):
             tgt2 = tgt2.mean(1)
         elif self.fuse_view_feats == 'cat_proj':
             tgt2 = tgt2.permute(0, 2, 1, 3).contiguous()\
-                .view(batch_size, nbins, -1)
+                .view(batch_size, nbins, -1)              # 融合4个视角
             tgt2 = self.fuse_view_projction(tgt2)
         elif self.fuse_view_feats == 'cat_catcoord_proj':
             tgt2 = torch.cat(

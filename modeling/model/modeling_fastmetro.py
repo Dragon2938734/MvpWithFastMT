@@ -14,8 +14,8 @@ from torch import nn
 from .transformer import build_transformer
 from .position_encoding import build_position_encoding
 from .smpl_param_regressor import build_smpl_parameter_regressor
-from model.lib.models.multi_view_pose_transformer import MultiviewPosetransformer  # 导入多视角交叉融合的模块
-from model.lib.core.config import config as cfg
+from .lib.models.multi_view_pose_transformer import MultiviewPosetransformer, get_mvp  # 导入多视角交叉融合的模块
+from .lib.core.config import config as cfg
 
 
 class FastMETRO_Body_Network(nn.Module):
@@ -50,11 +50,14 @@ class FastMETRO_Body_Network(nn.Module):
             assert False, "The model name is not valid"
         
         # 定义多视角特征融合模块
-        if cfg.BACKBONE_MODEL:
-            backbone = eval(cfg.BACKBONE_MODEL + '.get_pose_net')(cfg, is_train=is_train)
-        else:
-            backbone = None
-        self.mutiview_fusion = MultiviewPosetransformer(backbone, cfg)
+        # if cfg.BACKBONE_MODEL:
+        #     import ipdb
+        #     ipdb.set_trace()
+        #     backbone = eval(cfg.BACKBONE_MODEL + '.get_pose_net')(cfg, is_train=True)
+        # else:
+        #     backbone = None
+        # self.mutiview_fusion = MultiviewPosetransformer(backbone, cfg)
+        self.mutiview_fusion = get_mvp(cfg, is_train=True)
     
         # configurations for the first transformer
         self.transformer_config_1 = {"model_dim": args.model_dim_1, "dropout": args.transformer_dropout, "nhead": args.transformer_nhead, 
@@ -106,8 +109,8 @@ class FastMETRO_Body_Network(nn.Module):
             self.smpl_parameter_regressor = build_smpl_parameter_regressor()
     
     def forward(self, images, meta):     # 网络部分
-        device = images.device
-        batch_size = images.size(0)
+        device = images[0].device
+        batch_size = images[0].size(0)
 
         # preparation
         cam_token = self.cam_token_embed.weight.unsqueeze(1).repeat(1, batch_size, 1) # 1 X batch_size X 512 
@@ -115,18 +118,20 @@ class FastMETRO_Body_Network(nn.Module):
         attention_mask = self.attention_mask.to(device) # (num_joints + num_vertices) X (num_joints + num_vertices)
         
         # extract image features through a CNN backbone
-        # img_features = self.backbone(images) # batch_size X 2048 X 7 X 7
-        img_features = self.mutiview_fusion(views=inputs, meta=meta)  # 此处为mvp融合后的特征
+        img_features = self.backbone(images[0]) # batch_size X 2048 X 7 X 7
+        mutiview_fusion_features = self.mutiview_fusion(views=images, meta=meta)  # 此处为mvp融合后的特征
         _, _, h, w = img_features.shape      
         img_features = self.conv_1x1(img_features).flatten(2).permute(2, 0, 1) # 49 X batch_size X 512 
-        
+
         # positional encodings
         pos_enc_1 = self.position_encoding_1(batch_size, h, w, device).flatten(2).permute(2, 0, 1) # 49 X batch_size X 512 
         pos_enc_2 = self.position_encoding_2(batch_size, h, w, device).flatten(2).permute(2, 0, 1) # 49 X batch_size X 128 
 
         # first transformer encoder-decoder
         cam_features_1, enc_img_features_1, jv_features_1 = self.transformer_1(img_features, cam_token, jv_tokens, pos_enc_1, attention_mask=attention_mask)
-        
+        import ipdb
+        ipdb.set_trace()
+
         # progressive dimensionality reduction
         reduced_cam_features_1 = self.dim_reduce_enc_cam(cam_features_1) # 1 X batch_size X 128
         reduced_enc_img_features_1 = self.dim_reduce_enc_img(enc_img_features_1) # 49 X batch_size X 128 

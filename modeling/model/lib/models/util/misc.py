@@ -28,6 +28,8 @@ from torch import Tensor
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
 
+# import sys
+# sys.path.append('/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/util')
 from mmcv.runner import get_dist_info
 import tempfile
 import mmcv

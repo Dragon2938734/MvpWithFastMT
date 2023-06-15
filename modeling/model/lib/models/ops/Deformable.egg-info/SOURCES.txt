@@ -1,0 +1,12 @@
+setup.py
+/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/vision.cpp
+/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/cpu/deform_cpu.cpp
+/root/autodl-tmp/FastMETRO/src/modeling/model/lib/models/ops/src/cuda/deform_cuda.cu
+Deformable.egg-info/PKG-INFO
+Deformable.egg-info/SOURCES.txt
+Deformable.egg-info/dependency_links.txt
+Deformable.egg-info/top_level.txt
+functions/__init__.py
+functions/deform_func.py
+modules/__init__.py
+modules/projattn.py
