@@ -127,10 +127,11 @@ class FastMETRO_Body_Network(nn.Module):
         pos_enc_1 = self.position_encoding_1(batch_size, h, w, device).flatten(2).permute(2, 0, 1) # 49 X batch_size X 512 
         pos_enc_2 = self.position_encoding_2(batch_size, h, w, device).flatten(2).permute(2, 0, 1) # 49 X batch_size X 128 
 
+        # 此处想法，根据最终结果预测是依据 jv_features_2 ,故想将mvp融合后的特征与jv_tokens相加再输入到fastmt中
+        jv_tokens = jv_tokens + mutiview_fusion_features.permute(1, 0, 2)  # mvp与FastMT融合之处
         # first transformer encoder-decoder
         cam_features_1, enc_img_features_1, jv_features_1 = self.transformer_1(img_features, cam_token, jv_tokens, pos_enc_1, attention_mask=attention_mask)
-        import ipdb
-        ipdb.set_trace()
+
 
         # progressive dimensionality reduction
         reduced_cam_features_1 = self.dim_reduce_enc_cam(cam_features_1) # 1 X batch_size X 128

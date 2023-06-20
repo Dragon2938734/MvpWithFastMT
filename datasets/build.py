@@ -53,7 +53,7 @@ class IterationBasedBatchSampler(torch.utils.data.sampler.BatchSampler):
 
 def make_batch_data_sampler(sampler, images_per_gpu, num_iters=None, start_iter=0):
     batch_sampler = torch.utils.data.sampler.BatchSampler(
-        sampler, images_per_gpu, drop_last=False
+        sampler, images_per_gpu, drop_last=True
     )
     if num_iters is not None and num_iters >= 0:
         batch_sampler = IterationBasedBatchSampler(
@@ -98,7 +98,7 @@ def make_data_loader(args, yaml_file, is_distributed=True,
     )
     data_loader = torch.utils.data.DataLoader(
         dataset, num_workers=args.num_workers, batch_sampler=batch_sampler,
-        pin_memory=True,
+        pin_memory=True
     )
     return data_loader
 

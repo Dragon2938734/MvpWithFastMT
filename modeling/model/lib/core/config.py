@@ -100,7 +100,8 @@ config.POSE_RESNET = edict()
 config.POSE_RESNET.NUM_LAYERS = 50
 config.POSE_RESNET.DECONV_WITH_BIAS = False
 config.POSE_RESNET.NUM_DECONV_LAYERS = 3
-config.POSE_RESNET.NUM_DECONV_FILTERS = [256, 256, 256]
+# config.POSE_RESNET.NUM_DECONV_FILTERS = [256, 256, 256]
+config.POSE_RESNET.NUM_DECONV_FILTERS = [512, 512, 512]
 config.POSE_RESNET.NUM_DECONV_KERNELS = [4, 4, 4]
 config.POSE_RESNET.FINAL_CONV_KERNEL = 1
 
@@ -149,7 +150,7 @@ config.TRAIN.END_EPOCH = 140
 config.TRAIN.RESUME = False
 config.TRAIN.FINETUNE_MODEL = None
 
-config.TRAIN.BATCH_SIZE = 2
+config.TRAIN.BATCH_SIZE = 4
 config.TRAIN.SHUFFLE = True
 config.TRAIN.clip_max_norm = 0.1
 
@@ -205,7 +206,8 @@ config.MULTI_PERSON.MAX_PEOPLE_NUM = 10
 config.MULTI_PERSON.THRESHOLD = 0.1
 
 config.DECODER = dict()
-config.DECODER.d_model = 256
+# config.DECODER.d_model = 256
+config.DECODER.d_model = 512
 config.DECODER.nhead = 8
 config.DECODER.dim_feedforward = 1024
 config.DECODER.dropout = 0.1
@@ -213,9 +215,11 @@ config.DECODER.activation = 'relu'
 config.DECODER.num_feature_levels = 1
 config.DECODER.dec_n_points = 4
 config.DECODER.num_decoder_layers = 6
-config.DECODER.return_intermediate_dec = True
+# config.DECODER.return_intermediate_dec = True
+config.DECODER.return_intermediate_dec = False
 config.DECODER.num_instance = 10
 config.DECODER.num_keypoints = 15
+config.DECODER.num_keypoints_fastmt = 445
 config.DECODER.num_views = 5
 config.DECODER.with_pose_refine = True
 config.DECODER.aux_loss = True
@@ -247,7 +251,8 @@ config.DECODER.agnostic_v2vnet = False
 config.DECODER.voxel_regression_type = 'perjoint'
 config.DECODER.pose_embed_layer = 3
 
-config.DECODER.query_embed_type = 'person_joint'
+# config.DECODER.query_embed_type = 'person_joint'
+config.DECODER.query_embed_type = 'fastmt_joint_vertice'
 config.DECODER.optimizer = 'adam'
 config.DECODER.lr_decay_epoch = [40, ]
 

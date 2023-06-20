@@ -169,6 +169,10 @@ class MultiviewPosetransformer(nn.Module):
                                                 cfg.DECODER.d_model * 2)
             self.instance_embedding = nn.Embedding(cfg.DECODER.num_instance,
                                                    cfg.DECODER.d_model * 2)
+        elif self.query_embed_type == 'fastmt_joint_vertice':
+            self.joint_embedding = nn.Embedding(cfg.DECODER.num_keypoints_fastmt,
+                                                cfg.DECODER.d_model * 2)
+
         elif self.query_embed_type == 'image_person_joint':
             self.image_embedding = nn.Embedding(1, cfg.DECODER.d_model * 2)
             self.joint_embedding = nn.Embedding(cfg.DECODER.num_keypoints,
@@ -308,6 +312,8 @@ class MultiviewPosetransformer(nn.Module):
             all_feats = all_feats[::-1]
         # batch, _, imageh, imagew = views[0].shape
         # nview = len(views)
+        # import ipdb
+        # ipdb.set_trace()
 
         cam_R = torch.stack([m['camera_R'] for m in meta], dim=1)
         cam_T = torch.stack([m['camera_standard_T'] for m in meta], dim=1)
@@ -363,13 +369,19 @@ class MultiviewPosetransformer(nn.Module):
         mask_flatten_views = [m.flatten(1) for m in mask_flatten_views]
 
         # query embedding scheme
-        if self.query_embed_type == 'person_joint':
+        if self.query_embed_type == 'fastmt_joint_vertice':
             # person embedding + joint embedding
             # 更改，由于只面向单人，故尝试把instance_embeds取消，只保留joint embedding
             joint_embeds = self.joint_embedding.weight.unsqueeze(0)
             # instance_embeds = self.instance_embedding.weight.unsqueeze(1)
             # query_embeds = (joint_embeds + instance_embeds).flatten(0, 1)
             query_embeds = joint_embeds.flatten(0, 1)
+
+        if self.query_embed_type == 'person_joint':
+            # person embedding + joint embedding
+            joint_embeds = self.joint_embedding.weight.unsqueeze(0)
+            instance_embeds = self.instance_embedding.weight.unsqueeze(1)
+            query_embeds = (joint_embeds + instance_embeds).flatten(0, 1)
 
         if self.query_embed_type == 'image_person_joint':
             # image_embedding + person embedding + joint embedding
@@ -381,7 +393,7 @@ class MultiviewPosetransformer(nn.Module):
         elif self.query_embed_type == 'per_joint':
             # per joint embedding
             query_embeds = self.query_embed.weight
-
+        
         query_embed, tgt = torch.split(query_embeds, c, dim=1)
         query_embed = query_embed.unsqueeze(0).expand(batch, -1, -1)
         tgt = tgt.unsqueeze(0).expand(batch, -1, -1)
@@ -393,6 +405,12 @@ class MultiviewPosetransformer(nn.Module):
             feats_2 = F.adaptive_avg_pool2d(all_feats[2], (1, 1))
             feats = torch.cat((feats_0, feats_1, feats_2),
                               dim=1).squeeze().view(1, -1)
+
+            if feats.shape[1] != 24576:
+                print(meta[0]['image_name'])
+                import ipdb
+                ipdb.set_trace()
+
             ref_feats = self.reference_feats(feats).unsqueeze(0)
             reference_points = self.reference_points(
                 query_embed + ref_feats).sigmoid()

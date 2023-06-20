@@ -44,7 +44,9 @@ from src.utils.geometric_layers import orthographic_projection, rodrigues
 from src.utils.renderer_pyrender import PyRender_Renderer, visualize_reconstruction_pyrender, visualize_reconstruction_multi_view_pyrender, visualize_reconstruction_smpl_pyrender
 # except:
     # print("Failed to import renderer_pyrender. Please see docs/Installation.md")
-
+from tqdm import tqdm
+import time
+import copy
 
 def save_checkpoint(model, args, epoch, iteration, num_trial=10):
     checkpoint_dir = op.join(args.output_dir, 'checkpoint-{}-{}'.format(
@@ -267,11 +269,17 @@ def rectify_pose(pose):
     return pose
 
 def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mesh_sampler, renderer, smpl_intermediate_faces, smpl_intermediate_edges):    
+    start_time = time.strftime("%Y-%m-%d %H:%M:%S")
     smpl.eval()
     max_iter = len(train_dataloader)
     iters_per_epoch = max_iter // args.num_train_epochs
-    args.logging_steps = iters_per_epoch // 2
+    args.logging_steps = iters_per_epoch // 30
+    lr_drop = iters_per_epoch // 1
+    # args.logging_steps = 500
     iteration = args.resume_epoch * iters_per_epoch
+
+    logger.info('Start_time:'+start_time)
+    logger.info('train_paramaters:||'+'num_epochs:'+str(args.num_train_epochs)+'||num_workers:'+str(args.num_workers)+'||batchsize:'+str(args.per_gpu_train_batch_size)+'||lr:'+str(args.lr)+'||gamma_lrdecay/lr_drop:'+str(args.lr_decay_gamma)+'/'+str(lr_drop))
 
     FastMETRO_model_without_ddp = FastMETRO_model
     if args.distributed:
@@ -295,7 +303,7 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
     # optimizer & learning rate scheduler
     optimizer = torch.optim.AdamW(param_dicts, lr=args.lr,
                                   weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, lr_drop, gamma=args.lr_decay_gamma)
                         
     # define loss functions for joints & vertices
     criterion_2d_keypoints = torch.nn.L1Loss(reduction='none').cuda(args.device)
@@ -322,7 +330,7 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         log_eval_metrics_mpjpe.set(epoch=args.resume_mpjpe_best_epoch, mPVPE=args.resume_mpjpe_best_mpvpe, mPJPE=args.resume_mpjpe_best_mpjpe, PAmPJPE=args.resume_mpjpe_best_pampjpe)
         log_eval_metrics_pampjpe.set(epoch=args.resume_pampjpe_best_epoch, mPVPE=args.resume_pampjpe_best_mpvpe, mPJPE=args.resume_pampjpe_best_mpjpe, PAmPJPE=args.resume_pampjpe_best_pampjpe)
 
-    for _, (img_keys, images, annotations, inputs, meta) in enumerate(train_dataloader):
+    for _, (img_keys, images, annotations, inputs, meta) in tqdm(enumerate(train_dataloader)):
         FastMETRO_model.train()
         iteration = iteration + 1
         epoch = iteration // iters_per_epoch
@@ -411,7 +419,23 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         pred_2d_joints_from_smpl = orthographic_projection(pred_3d_joints_from_smpl, pred_cam) # batch_size X 14 X 2
         pred_2d_joints_from_token = orthographic_projection(pred_3d_joints_from_token, pred_cam) # batch_size X 14 X 2
 
-        # compute 3d joint loss  
+        # 此处为True时，就只使用一个视角的gt（调代码流程时使用，后续还要改进loss函数，保证充分利用数据）
+        # import ipdb
+        # ipdb.set_trace()
+        if args.use_single_view:
+            gt_3d_joints = gt_3d_joints[0]
+            has_3d_joints = has_3d_joints[0]
+            gt_3d_vertices_coarse = gt_3d_vertices_coarse_list[0]
+            gt_3d_vertices_intermediate = gt_3d_vertices_intermediate_list[0]
+            gt_3d_vertices_fine = gt_3d_vertices_fine_list[0]
+            has_smpl = has_smpl[0]
+            gt_2d_joints = gt_2d_joints[0]
+            has_2d_joints = has_2d_joints[0]
+            gt_pose = gt_pose[0]
+            gt_betas = gt_betas[0]
+
+        # compute 3d joint loss
+
         loss_3d_joints = (keypoint_3d_loss(criterion_3d_keypoints, pred_3d_joints_from_token, gt_3d_joints, has_3d_joints, args.device) + \
                          keypoint_3d_loss(criterion_3d_keypoints, pred_3d_joints_from_smpl, gt_3d_joints, has_3d_joints, args.device))
         # compute 3d vertex loss
@@ -446,7 +470,8 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
             loss_smpl_vertices = vertices_loss(criterion_3d_vertices, pred_smpl_3d_vertices, gt_3d_vertices_fine, has_smpl, args.device)
             # compute smpl parameter loss
             loss_smpl = smpl_param_loss(criterion_smpl_param, pred_rotmat, pred_betas, gt_pose, gt_betas, has_smpl, args.device) + loss_smpl_3d_joints + loss_smpl_2d_joints + loss_smpl_vertices
-            if "H36m" in args.train_yaml:
+            # if "H36m" in args.train_yaml:
+            if "human3.6m" in args.train_yaml:
                 # mainly train smpl parameter regressor in h36m training
                 loss = (args.smpl_param_loss_weight * loss_smpl) + (1e-8 * loss)
             else:
@@ -466,6 +491,7 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
         if args.clip_max_norm > 0:
             torch.nn.utils.clip_grad_norm_(FastMETRO_model.parameters(), args.clip_max_norm)
         optimizer.step()
+        # lr_scheduler.step()
 
         # logging
         if (iteration % (iters_per_epoch//2) == 0) and is_main_process():
@@ -502,6 +528,9 @@ def run_train(args, train_dataloader, val_dataloader, FastMETRO_model, smpl, mes
             lr_scheduler.step()
             
             val_result = run_validate(args, val_dataloader, FastMETRO_model, epoch, smpl, mesh_sampler)
+            one_epoch_endtime = time.strftime("%Y-%m-%d %H:%M:%S")
+            logger.info('one_epoch_endtime:'+one_epoch_endtime)
+
             val_mPVPE, val_mPJPE, val_PAmPJPE = val_result['val_mPVPE'], val_result['val_mPJPE'], val_result['val_PAmPJPE']
             if args.use_smpl_param_regressor:
                 val_smpl_mPVPE, val_smpl_mPJPE, val_smpl_PAmPJPE = val_result['val_smpl_mPVPE'], val_result['val_smpl_mPJPE'], val_result['val_smpl_PAmPJPE']
@@ -596,32 +625,49 @@ def run_validate(args, val_loader, FastMETRO_model, epoch, smpl, renderer):
     FastMETRO_model.eval()
     smpl.eval()
     with torch.no_grad():
-        for iteration, (img_keys, images, annotations) in enumerate(val_loader):
+        for iteration, (img_keys, images, annotations, inputs, meta) in tqdm(enumerate(val_loader)):
             # compute output
-            images = images.cuda(args.device)
+            # images = images.cuda(args.device)
+            inputs = [i.to(args.device) for i in inputs]
+            meta = [{k: v.to(args.device) if isinstance(v, torch.Tensor) else v
+                    for k, v in t.items()} for t in meta]
             # gt 3d joints
-            gt_3d_joints = annotations['joints_3d'].cuda(args.device) # batch_size X 24 X 4 (last for confidence)
-            gt_3d_pelvis = gt_3d_joints[:,cfg.J24_NAME.index('Pelvis'),:3] # batch_size X 3
-            gt_3d_joints = gt_3d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 4
-            gt_3d_joints[:,:,:3] = gt_3d_joints[:,:,:3] - gt_3d_pelvis[:, None, :] # batch_size X 14 X 4
-            has_3d_joints = annotations['has_3d_joints'].cuda(args.device) # batch_size
+            gt_3d_joints = [annotation['joints_3d'].to(args.device) for annotation in annotations]
+            # gt_3d_joints = annotations['joints_3d'].cuda(args.device) # batch_size X 24 X 4 (last for confidence)
+            gt_3d_pelvis = [gt_3d_j[:,cfg.J24_NAME.index('Pelvis'),:3] for gt_3d_j in gt_3d_joints]
+            # gt_3d_pelvis = gt_3d_joints[:,cfg.J24_NAME.index('Pelvis'),:3] # batch_size X 3
+            gt_3d_joints = [gt_3d_j[:,cfg.J24_TO_J14,:] for gt_3d_j in gt_3d_joints]
+            # gt_3d_joints = gt_3d_joints[:,cfg.J24_TO_J14,:] # batch_size X 14 X 4
+            for i in range(args.num_views):
+                gt_3d_joints[i][:,:,:3] = gt_3d_joints[i][:,:,:3] - gt_3d_pelvis[i][:, None, :] # batch_size X 14 X 4
+            # gt_3d_joints[:,:,:3] = gt_3d_joints[:,:,:3] - gt_3d_pelvis[:, None, :] # batch_size X 14 X 4
+            has_3d_joints = [annotation['has_3d_joints'].to(args.device) for annotation in annotations]
+            # has_3d_joints = annotations['has_3d_joints'].cuda(args.device) # batch_size
 
             # gt params for smpl
-            gt_pose = annotations['pose'].cuda(args.device) # batch_size X 72
-            gt_betas = annotations['betas'].cuda(args.device) # batch_size X 10
-            has_smpl = annotations['has_smpl'].cuda(args.device) # batch_size 
+            gt_pose = [annotation['pose'].to(args.device) for annotation in annotations]
+            # gt_pose = annotations['pose'].cuda(args.device) # batch_size X 72
+            gt_betas = [annotation['betas'].to(args.device) for annotation in annotations]
+            # gt_betas = annotations['betas'].cuda(args.device) # batch_size X 10
+            has_smpl = [annotation['has_smpl'].to(args.device) for annotation in annotations]
+            # has_smpl = annotations['has_smpl'].cuda(args.device) # batch_size 
 
             # generate simplified mesh
-            gt_3d_vertices_fine = smpl(gt_pose, gt_betas) # batch_size X 6890 X 3
+            gt_3d_vertices_fine_list = []
+            for i in range(args.num_views):
+                gt_3d_vertices_fine = smpl(gt_pose[i], gt_betas[i]) # batch_size X 6890 X 3
+            # gt_3d_vertices_fine = smpl(gt_pose, gt_betas) # batch_size X 6890 X 3
 
             # normalize ground-truth vertices & joints (based on smpl's pelvis)
             # smpl.get_h36m_joints: from vertex to joint (using smpl)
-            gt_smpl_3d_joints = smpl.get_h36m_joints(gt_3d_vertices_fine) # batch_size X 17 X 3
-            gt_smpl_3d_pelvis = gt_smpl_3d_joints[:,cfg.H36M_J17_NAME.index('Pelvis'),:] # batch_size X 3
-            gt_3d_vertices_fine = gt_3d_vertices_fine - gt_smpl_3d_pelvis[:, None, :] # batch_size X 6890 X 3
+                gt_smpl_3d_joints = smpl.get_h36m_joints(gt_3d_vertices_fine) # batch_size X 17 X 3
+                gt_smpl_3d_pelvis = gt_smpl_3d_joints[:,cfg.H36M_J17_NAME.index('Pelvis'),:] # batch_size X 3
+                gt_3d_vertices_fine = gt_3d_vertices_fine - gt_smpl_3d_pelvis[:, None, :] # batch_size X 6890 X 3
+
+                gt_3d_vertices_fine_list.append(gt_3d_vertices_fine)
 
             # forward-pass
-            out = FastMETRO_model(images)
+            out = FastMETRO_model(inputs, meta)
             pred_cam, pred_3d_vertices_fine = out['pred_cam'], out['pred_3d_vertices_fine']
 
             # obtain 3d joints, which are regressed from the full mesh
@@ -632,6 +678,22 @@ def run_validate(args, val_loader, FastMETRO_model, epoch, smpl, renderer):
             pred_3d_vertices_fine = pred_3d_vertices_fine - pred_3d_joints_from_smpl_pelvis[:, None, :] # batch_size X 6890 X 3
             # normalize predicted joints 
             pred_3d_joints_from_smpl = pred_3d_joints_from_smpl - pred_3d_joints_from_smpl_pelvis[:, None, :] # batch_size X 14 X 3
+
+
+            # 此处为True时，就只使用一个视角的gt（调代码流程时使用，后续还要改进loss函数，保证充分利用数据）
+            if args.use_single_view:
+                gt_3d_joints = gt_3d_joints[0]
+                has_3d_joints = has_3d_joints[0]
+
+                # gt_3d_vertices_coarse = gt_3d_vertices_coarse_list[0]
+                # gt_3d_vertices_intermediate = gt_3d_vertices_intermediate_list[0]
+                gt_3d_vertices_fine = gt_3d_vertices_fine_list[0]
+                has_smpl = has_smpl[0]
+                # gt_2d_joints = gt_2d_joints[0]
+                # has_2d_joints = has_2d_joints[0]
+                # gt_pose = gt_pose[0]
+                # gt_betas = gt_betas[0]
+
 
             if args.use_smpl_param_regressor:
                 pred_rotmat, pred_betas = out['pred_rotmat'], out['pred_betas']
@@ -787,7 +849,7 @@ def parse_args():
     #########################################################
     parser.add_argument("--output_dir", default='output/', type=str, required=False,
                         help="The output directory to save checkpoint and test results.")
-    parser.add_argument("--saving_epochs", default=10, type=int)
+    parser.add_argument("--saving_epochs", default=1, type=int)
     parser.add_argument("--resume_checkpoint", default=None, type=str, required=False,
                         help="Path to specific checkpoint for resume training.")
     parser.add_argument("--resume_epoch", default=0, type=int)
@@ -809,7 +871,8 @@ def parse_args():
     parser.add_argument('--lr', "--learning_rate", default=1e-4, type=float, 
                         help="The initial lr.")
     parser.add_argument('--lr_backbone', default=1e-4, type=float)
-    parser.add_argument('--lr_drop', default=100, type=int)
+    # parser.add_argument('--lr_drop', default=100, type=int)
+    parser.add_argument('--lr_decay_gamma', default=0.5, type=float)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--clip_max_norm', default=0.3, type=float,
                         help='gradient clipping maximal norm')
@@ -828,6 +891,7 @@ def parse_args():
     parser.add_argument("--edge_self_loss_weight", default=1e-4, type=float) 
     parser.add_argument("--normal_loss_weight", default=0.1, type=float)
     parser.add_argument("--smpl_param_loss_weight", default=1000.0, type=float)
+    parser.add_argument("--use_single_view", default=True)
     # Model parameters
     parser.add_argument("--model_name", default='FastMETRO-L', type=str,
                         help='Transformer architecture: FastMETRO-S, FastMETRO-M, FastMETRO-L')
